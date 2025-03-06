@@ -1,35 +1,35 @@
-function varargout = EegBtachExtract(varargin)
-% EEGBTACHEXTRACT MATLAB code for EegBtachExtract.fig
-%      EEGBTACHEXTRACT, by itself, creates a new EEGBTACHEXTRACT or raises the existing
+function varargout = EegBatchExtract(varargin)
+% EEGBATCHEXTRACT MATLAB code for EegBatchExtract.fig
+%      EEGBATCHEXTRACT, by itself, creates a new EEGBATCHEXTRACT or raises the existing
 %      singleton*.
 %
-%      H = EEGBTACHEXTRACT returns the handle to a new EEGBTACHEXTRACT or the handle to
+%      H = EEGBATCHEXTRACT returns the handle to a new EEGBATCHEXTRACT or the handle to
 %      the existing singleton*.
 %
-%      EEGBTACHEXTRACT('CALLBACK',hObject,eventData,handles,...) calls the local
-%      function named CALLBACK in EEGBTACHEXTRACT.M with the given input arguments.
+%      EEGBATCHEXTRACT('CALLBACK',hObject,eventData,handles,...) calls the local
+%      function named CALLBACK in EEGBATCHEXTRACT.M with the given input arguments.
 %
-%      EEGBTACHEXTRACT('Property','Value',...) creates a new EEGBTACHEXTRACT or raises the
+%      EEGBATCHEXTRACT('Property','Value',...) creates a new EEGBATCHEXTRACT or raises the
 %      existing singleton*.  Starting from the left, property value pairs are
-%      applied to the GUI before EegBtachExtract_OpeningFcn gets called.  An
+%      applied to the GUI before EegBatchExtract_OpeningFcn gets called.  An
 %      unrecognized property name or invalid value makes property application
-%      stop.  All inputs are passed to EegBtachExtract_OpeningFcn via varargin.
+%      stop.  All inputs are passed to EegBatchExtract_OpeningFcn via varargin.
 %
 %      *See GUI Options on GUIDE's Tools menu.  Choose "GUI allows only one
 %      instance to run (singleton)".
 %
 % See also: GUIDE, GUIDATA, GUIHANDLES
 
-% Edit the above text to modify the response to help EegBtachExtract
+% Edit the above text to modify the response to help EegBatchExtract
 
-% Last Modified by GUIDE v2.5 02-Mar-2025 11:18:47
+% Last Modified by GUIDE v2.5 06-Mar-2025 09:38:49
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
 gui_State = struct('gui_Name',       mfilename, ...
                    'gui_Singleton',  gui_Singleton, ...
-                   'gui_OpeningFcn', @EegBtachExtract_OpeningFcn, ...
-                   'gui_OutputFcn',  @EegBtachExtract_OutputFcn, ...
+                   'gui_OpeningFcn', @EegBatchExtract_OpeningFcn, ...
+                   'gui_OutputFcn',  @EegBatchExtract_OutputFcn, ...
                    'gui_LayoutFcn',  [] , ...
                    'gui_Callback',   []);
 if nargin && ischar(varargin{1})
@@ -44,21 +44,21 @@ end
 % End initialization code - DO NOT EDIT
 
 
-% --- Executes just before EegBtachExtract is made visible.
-function EegBtachExtract_OpeningFcn(hObject, eventdata, handles, varargin)
+% --- Executes just before EegBatchExtract is made visible.
+function EegBatchExtract_OpeningFcn(hObject, eventdata, handles, varargin)
 % This function has no output args, see OutputFcn.
 % hObject    handle to figure
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
-% varargin   command line arguments to EegBtachExtract (see VARARGIN)
+% varargin   command line arguments to EegBatchExtract (see VARARGIN)
 
-% Choose default command line output for EegBtachExtract
+% Choose default command line output for EegBatchExtract
 handles.output = hObject;
 
 % Update handles structure
 guidata(hObject, handles);
 
-% UIWAIT makes EegBtachExtract wait for user response (see UIRESUME)
+% UIWAIT makes EegBatchExtract wait for user response (see UIRESUME)
 % uiwait(handles.figure1);
 
 % initialise data
@@ -75,10 +75,10 @@ end
 
 % read in the chanlocs
 try
-    fn = data.edit2.String;
+    fn = data.editImputeFilename.String;
     if strlength(fn)>3
         fn = fn(1:strfind(fn,'(')-2);
-        EEG = pop_loadset([data.edit1.String '/' fn]);
+        EEG = pop_loadset([data.editImputePath.String '/' fn]);
     end
     data.chanlocs = EEG.chanlocs;
 catch
@@ -111,8 +111,8 @@ if fid>0
     data.pathname = pathname;
     data.filenames = filenames;
     
-    data.edit4.String = pathname;
-    data.edit5.String = sprintf("%d files",length(filenames));
+    data.editSelectPath.String = pathname;
+    data.editSelectFileNum.String = sprintf("%d files",length(filenames));
 end 
 catch
     warning('No such file')
@@ -123,7 +123,7 @@ guidata(hObject, data)
 
 
 % --- Outputs from this function are returned to the command line.
-function varargout = EegBtachExtract_OutputFcn(hObject, eventdata, handles) 
+function varargout = EegBatchExtract_OutputFcn(hObject, eventdata, handles) 
 % varargout  cell array for returning output args (see VARARGOUT);
 % hObject    handle to figure
 % eventdata  reserved - to be defined in a future version of MATLAB
@@ -177,8 +177,8 @@ end
 data.filenames = filenames;
 data.pathname = pathname;
 
-data.edit4.String = pathname;
-data.edit5.String = sprintf('%d files', length(filenames));
+data.editSelectPath.String = pathname;
+data.editSelectFileNum.String = sprintf('%d files', length(filenames));
 
 guidata(hObject,data)
 
@@ -220,31 +220,31 @@ if fid>0
 end 
 
 % put filename in editbox
-data.edit1.String = PathName;
-data.edit2.String = sprintf('%s (%d channels)', FileName, 0);
+data.editImputePath.String = PathName;
+data.editImputeFilename.String = sprintf('%s (%d channels)', FileName, 0);
 pause(.1)
 
 EEG = pop_loadset([PathName '/' FileName]);
 data.chanlocs = EEG.chanlocs;
-data.edit2.String = sprintf('%s (%d channels)', FileName, length(data.chanlocs));
+data.editImputeFilename.String = sprintf('%s (%d channels)', FileName, length(data.chanlocs));
 pause(.05)
 
 guidata(hObject, data);
 
 
 
-function edit1_Callback(hObject, eventdata, handles)
-% hObject    handle to edit1 (see GCBO)
+function editImputePath_Callback(hObject, eventdata, handles)
+% hObject    handle to editImputePath (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 
-% Hints: get(hObject,'String') returns contents of edit1 as text
-%        str2double(get(hObject,'String')) returns contents of edit1 as a double
+% Hints: get(hObject,'String') returns contents of editImputePath as text
+%        str2double(get(hObject,'String')) returns contents of editImputePath as a double
 
 
 % --- Executes during object creation, after setting all properties.
-function edit1_CreateFcn(hObject, eventdata, handles)
-% hObject    handle to edit1 (see GCBO)
+function editImputePath_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to editImputePath (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    empty - handles not created until after all CreateFcns called
 
@@ -256,18 +256,18 @@ end
 
 
 
-function edit2_Callback(hObject, eventdata, handles)
-% hObject    handle to edit2 (see GCBO)
+function editImputeFilename_Callback(hObject, eventdata, handles)
+% hObject    handle to editImputeFilename (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 
-% Hints: get(hObject,'String') returns contents of edit2 as text
-%        str2double(get(hObject,'String')) returns contents of edit2 as a double
+% Hints: get(hObject,'String') returns contents of editImputeFilename as text
+%        str2double(get(hObject,'String')) returns contents of editImputeFilename as a double
 
 
 % --- Executes during object creation, after setting all properties.
-function edit2_CreateFcn(hObject, eventdata, handles)
-% hObject    handle to edit2 (see GCBO)
+function editImputeFilename_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to editImputeFilename (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    empty - handles not created until after all CreateFcns called
 
@@ -565,18 +565,18 @@ end
 
 
 
-function edit4_Callback(hObject, eventdata, handles)
-% hObject    handle to edit4 (see GCBO)
+function editSelectPath_Callback(hObject, eventdata, handles)
+% hObject    handle to editSelectPath (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 
-% Hints: get(hObject,'String') returns contents of edit4 as text
-%        str2double(get(hObject,'String')) returns contents of edit4 as a double
+% Hints: get(hObject,'String') returns contents of editSelectPath as text
+%        str2double(get(hObject,'String')) returns contents of editSelectPath as a double
 
 
 % --- Executes during object creation, after setting all properties.
-function edit4_CreateFcn(hObject, eventdata, handles)
-% hObject    handle to edit4 (see GCBO)
+function editSelectPath_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to editSelectPath (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    empty - handles not created until after all CreateFcns called
 
@@ -588,18 +588,18 @@ end
 
 
 
-function edit5_Callback(hObject, eventdata, handles)
-% hObject    handle to edit5 (see GCBO)
+function editSelectFileNum_Callback(hObject, eventdata, handles)
+% hObject    handle to editSelectFileNum (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 
-% Hints: get(hObject,'String') returns contents of edit5 as text
-%        str2double(get(hObject,'String')) returns contents of edit5 as a double
+% Hints: get(hObject,'String') returns contents of editSelectFileNum as text
+%        str2double(get(hObject,'String')) returns contents of editSelectFileNum as a double
 
 
 % --- Executes during object creation, after setting all properties.
-function edit5_CreateFcn(hObject, eventdata, handles)
-% hObject    handle to edit5 (see GCBO)
+function editSelectFileNum_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to editSelectFileNum (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    empty - handles not created until after all CreateFcns called
 
@@ -674,8 +674,11 @@ for c=1:length(ch)
         skip=false;
         switch get(ch(c),'Style')
             case 'edit'
-                tmp1 = sprintf('%s',get(ch(c),'tag'));
-                tmp2 = sprintf('%s',get(ch(c),'string'));
+                try
+                    tmp1 = sprintf('%s',get(ch(c),'tag'));
+                    tmp2 = sprintf('%s',get(ch(c),'string'));
+                catch
+                end
             case {'checkbox','slider'}
                 tmp1 = sprintf('%s',get(ch(c),'tag'));
                 tmp2 = sprintf('%.4f',get(ch(c),'value'));
