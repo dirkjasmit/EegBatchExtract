@@ -22,7 +22,7 @@ function varargout = EegBatchExtract(varargin)
 
 % Edit the above text to modify the response to help EegBatchExtract
 
-% Last Modified by GUIDE v2.5 06-Mar-2025 09:38:49
+% Last Modified by GUIDE v2.5 06-Mar-2025 09:13:39
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -287,8 +287,8 @@ function pushbuttonBatch_Callback(hObject, eventdata, handles)
 data = guidata(hObject);
 
 % predefined
-freqnames = {'alpha','beta','theta','delta','alphalo','alphahi','betalo','betahi'};
-freqs = {[8 13], [13 30], [4 8], [1 3], [7 9.5], [9.5 13], [13 21], [21 30]};
+freqnames = {'alpha','beta','theta','delta','alphalo','alphahi','betalo','betahi','SENSEalpha','SENSEtheta'};
+freqs = {[8 13], [13 30], [4 8], [1 3], [7 9.5], [9.5 13], [13 21], [21 30], [8.5 12.0], [3.0 8.5]};
 
 
 % what analysis was selected?
@@ -489,6 +489,8 @@ function RunSingleParameterExtraction(filenames, pars)
 % function for analysis of EEG extracting a single parameter per
 % channel
 
+global T
+
 % initialize based on the analysis selected (var)
 switch pars.var
     case 'IAF'
@@ -508,7 +510,7 @@ switch pars.var
         end
 
     case {'Power','DFA'}
-        prefix = sprintf('%s_$s', pars.var, pars.freqname);
+        prefix = sprintf('%s_%s', pars.var, pars.freqname);
         % determine frequency for Power and DFA
 end
 
@@ -543,7 +545,7 @@ for f=1:length(filenames)
 
         case 'Power'
             [P,fs] = pfft(EEG.data(:,:)', EEG.srate, hanning(EEG.srate*4), .5);
-            ndx = fs>=pars.freq(1) & pars.fs<freq(2);
+            ndx = fs>=pars.freq(1) & fs<pars.freq(2);
             val = mean(P(ndx,:),1);
     end
 
@@ -559,6 +561,8 @@ if outfilename ~= 0
 else
     warning('No file written')
 end
+
+fprintf('Data Table also stored in global variable T\n')
 
 % --------  end of function -----------------------
 
