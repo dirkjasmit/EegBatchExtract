@@ -77,7 +77,7 @@ for e=1:size(Data,3)
             Temp = Data(s:s+Len-1,:,e);
         end
         F = fft(Temp.*repmat(Window,1,size(Temp,2)));
-        Ps(:,:,count) = (abs(F(1:end/2+1,:)).^2)./(Len*Rate);
+        Ps(:,:,count) = (abs(F(1:end/2+1,:)).^2)./(sum(Window.^2)*Rate);
         Ps(2:end,:,count) = Ps(2:end,:,count).*2;
     end
     P(:,:,e) = mean(Ps,3);
