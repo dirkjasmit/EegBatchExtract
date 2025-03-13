@@ -22,7 +22,7 @@ function varargout = EegBatchExtract(varargin)
 
 % Edit the above text to modify the response to help EegBatchExtract
 
-% Last Modified by GUIDE v2.5 06-Mar-2025 09:13:39
+% Last Modified by GUIDE v2.5 13-Mar-2025 17:02:08
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -306,6 +306,7 @@ pars.freq = freqs{data.popupmenuFreq.Value-1};
 pars.pathname = data.pathname;
 pars.var = var;
 pars.chanlocs = data.chanlocs;
+pars.dB = data.checkboxdB.Value;
 
 % DFA, IAF, and Power have the same output format.
 if ismember(var, {'DFA','IAF','Power'})
@@ -342,6 +343,7 @@ function RunPSD(filenames, pars)
     % initialize output. Save the data into a glocal variable for cohoerence.
     global AllPSDfreqs
     AllPSDfreqs = lo:hi;
+    
     global AllPSD
     AllPSD = nan(length(lo:hi), length(pars.chanlocs));
 
@@ -364,11 +366,100 @@ function RunPSD(filenames, pars)
         for frq=lo:(hi-1)
             cnt = cnt+1;
             ndx = fs>=frq & fs<(frq+1);
-            AllPSD(frq,:,f) = mean(P(ndx,:),1);
+            if pars.dB
+                AllPSD(frq,:,f) = 10*log10(mean(P(ndx,:),1));
+            else
+                AllPSD(frq,:,f) = mean(P(ndx,:),1);
+            end
         end
     end
 
     disp('Data stored in global AllPSD (freqs in AllPSDfreqs)')
+    
+    % open a figure for the PSD
+    chanlocs = pars.chanlocs;
+
+    fig = figure('Name', 'plot Power Spectrum', 'Tag', 'figPSD', 'NumberTitle', 'off', ...
+                 'Position', [100, 100, 700, 500]); % Adjust size as needed
+    % Create a frame (uipanel), checkbox, and create axes inside the panel
+    frame = uipanel('Parent', fig, 'Title', 'Power spectrum', 'Tag', 'framePSD', ...
+                    'Position', [0.005, 0.1, .98, 0.9]); % [x, y, width, height]
+    ax = axes('Parent', frame, 'Position', [0.07, 0.1, .91, 0.88], 'Tag', 'axesPSD'); % Adjust within panel
+    checkbox = uicontrol('Style', 'checkbox', 'Parent', fig, 'Tag', 'cbSummary', ...
+                         'String', 'Summarize into regions', 'Fontsize', 11, ...
+                         'Units', 'normalized', ...
+                         'Position', [0.05, 0.03, 0.4, 0.05], ...
+                         'Callback', @(src, event) checkbox_callback(src, ax, AllPSDfreqs, AllPSD, chanlocs, 10, pars.dB));
+                     
+    checkbox_callback(checkbox, ax, AllPSDfreqs, AllPSD, chanlocs, 10, pars.dB);
+
+
+
+
+% Callback function for checkbox
+function checkbox_callback(hObject, ax, fs, P, chanlocs, fontsize, dB)
+
+    % hardcoded limits
+    ndx = fs>=1 & fs<45;  
+    
+    % plot either all channels or a summary
+    if get(hObject,'Value')==0
+        x = fs(ndx);
+        if dB
+            y = 10*log10(P(ndx,:));
+        else 
+            y = P(ndx,:);
+        end
+        newx = min(fs(ndx)):.25:max(fs(ndx));
+        res = arrayfun(@(c)spline(x, y(:,c), newx)', 1:size(y,2), 'UniformOutput', false);
+        newy = cell2mat(res);
+        plot(ax, newx, newy);
+        
+    else
+        numlabels = {'theta','radius','X','Y','Z','sph_theta','sph_phi','sph_radius'};
+        tab = struct2table(chanlocs);
+        % repair: convert cell array of double to double with missings
+        for lab=1:length(numlabels)
+            if ismember(numlabels{lab}, tab.Properties.VariableNames) && ~isnumeric(tab.(numlabels{lab}))
+                values = cellfun(@(x)ifthen(isempty(x), nan, double(x)), tab.(numlabels{lab}));
+                tab.(lab) = values;
+            end
+        end
+        
+        relX = tab.X ./ sqrt(tab.X.^2+tab.Y.^2+tab.Z.^2);
+        relY = tab.Y ./ sqrt(tab.X.^2+tab.Y.^2+tab.Z.^2);
+        % relZ = tab.Z ./ sqrt(tab.X.^2+tab.Y.^2+tab.Z.^2);
+        
+        ant    = relX>=-1E-5;
+        post   = ~ant;
+        medial = abs(relY)<.41;
+        left   = relY>=.41;
+        right  = relY<=.41;
+        
+        regP = nan(size(P,1),6);
+        regP(:,1) = mean(P(:,ant & left),2);
+        regP(:,2) = mean(P(:,ant & medial),2);
+        regP(:,3) = mean(P(:,ant & right),2);
+        regP(:,4) = mean(P(:,post & left),2);
+        regP(:,5) = mean(P(:,post & medial),2);
+        regP(:,6) = mean(P(:,post & right),2);
+
+        x = fs(ndx);
+        if dB
+            y = 10*log10(regP(ndx,:));
+        else 
+            y = regP(ndx,:);
+        end
+        newx = min(fs(ndx)):.25:max(fs(ndx));
+        res = arrayfun(@(c)spline(x, y(:,c), newx)', 1:size(y,2), 'UniformOutput', false);
+        newy = cell2mat(res);
+        plot(ax, newx, newy);
+        legend('ant left','ant medial','ant right','post left','post medial','post right')
+ 
+    end
+    set(gca, 'fontsize', fontsize+2)
+    xlabel('frequency (Hz)')
+    ylabel('Power({\mu}V^2/Hz)')   
 
 
 function RunFAA(filenames, pars)
@@ -450,108 +541,111 @@ function angle_diff = angularDifference(theta1, phi1, theta2, phi2)
 function RunCoherence(filenames, pars)
 % function for analysis coherence
 
-prefix = ['COH_' pars.var];
+    prefix = ['COH_' pars.var];
 
-% initialize table with no values in the table (rowcount = 0). One
-% string for Id and the rest are doubles
-% T = table('Size', [0, length(pars.chanlocs)+1], ...
-%     'VariableTypes', ["string" repelem("double",length(pars.chanlocs))], ...
-%     'VariableNames', [{'Id'} cellfun(@(x)sprintf('%s_%s',prefix,x),{pars.chanlocs.labels},'uni',0)]);
+    % initialize table with no values in the table (rowcount = 0). One
+    % string for Id and the rest are doubles
+    % T = table('Size', [0, length(pars.chanlocs)+1], ...
+    %     'VariableTypes', ["string" repelem("double",length(pars.chanlocs))], ...
+    %     'VariableNames', [{'Id'} cellfun(@(x)sprintf('%s_%s',prefix,x),{pars.chanlocs.labels},'uni',0)]);
 
-% initialize output. Save the data into a glocal variable for cohoerence.
-global MeanCOH
-MeanCOH = nan(length(pars.chanlocs));
+    % initialize output. Save the data into a glocal variable for cohoerence.
+    global MeanCOH
+    MeanCOH = nan(length(pars.chanlocs));
 
-% loop thru the files selected
-for f=1:length(filenames)
-    EEG = pop_loadset([pars.pathname '/' filenames{f}]);
-    % remove channels not in chanlocs
-    remove = find(~ismember({EEG.chanlocs.labels}, {pars.chanlocs.labels}));
-    if ~isempty(remove)
-        EEG = pop_select(EEG, 'nochannel', remove);
+    % loop thru the files selected
+    for f=1:length(filenames)
+        EEG = pop_loadset([pars.pathname '/' filenames{f}]);
+        % remove channels not in chanlocs
+        remove = find(~ismember({EEG.chanlocs.labels}, {pars.chanlocs.labels}));
+        if ~isempty(remove)
+            EEG = pop_select(EEG, 'nochannel', remove);
+        end
+
+        % impute the rest
+        EEG = pop_interp(EEG, pars.chanlocs, 'spherical');
+
+        % this takes a bit of time
+        [COH, fs] = fastcoherence(EEG.data(:,:)', 'srate', EEG.srate, 'window', hanning(EEG.srate*4));
+
+        ndx = fs>=pars.freq(1) & fs<pars.freq(2);
+
+        MeanCOH(:,:,f) = mean(COH(:,:, ndx),3);
     end
 
-    % impute the rest
-    EEG = pop_interp(EEG, pars.chanlocs, 'spherical');
-
-    % this takes a bit of time
-    [COH, fs] = fastcoherence(EEG.data(:,:)', 'srate', EEG.srate, 'window', hanning(EEG.srate*4));
-
-    ndx = fs>=pars.freq(1) & fs<pars.freq(2);
-    
-    MeanCOH(:,:,f) = mean(COH(:,:, ndx),3);
-end
-
-disp('Coherence data stored in global variable MeanCOH')
+    disp('Coherence data stored in global variable MeanCOH')
 
 
 function RunSingleParameterExtraction(filenames, pars)
 % function for analysis of EEG extracting a single parameter per
 % channel
 
-global T
+    global T
 
-% initialize based on the analysis selected (var)
-switch pars.var
-    case 'IAF'
-        prefix = pars.var;
-        % if var is IAF, ask for lower and upper values for alpha as that
-        % may be different from the dropdown menu
-        dims = [1 35];  % Textbox dimensions
-        definput = {'7.0', '13.0'};  % Default values
-        answer = inputdlg({'Enter lower bound:', 'Enter upper bound:'}, ...
-            'input frequency band for IAF estimation', dims, definput);
-        % Convert the cell array to numbers
-        if ~isempty(answer) % Check if user didn't cancel
-            lo = str2double(answer{1});
-            hi = str2double(answer{2});
-        else
-            return
+    % initialize based on the analysis selected (var)
+    switch pars.var
+        case 'IAF'
+            prefix = pars.var;
+            % if var is IAF, ask for lower and upper values for alpha as that
+            % may be different from the dropdown menu
+            dims = [1 35];  % Textbox dimensions
+            definput = {'7.0', '13.0'};  % Default values
+            answer = inputdlg({'Enter lower bound:', 'Enter upper bound:'}, ...
+                'input frequency band for IAF estimation', dims, definput);
+            % Convert the cell array to numbers
+            if ~isempty(answer) % Check if user didn't cancel
+                lo = str2double(answer{1});
+                hi = str2double(answer{2});
+            else
+                return
+            end
+
+        case {'Power','DFA'}
+            prefix = sprintf('%s_%s', pars.var, pars.freqname);
+            % determine frequency for Power and DFA
+    end
+
+    % initialize table with no values in the table (rowcount = 0). One
+    % string for Id and the rest are doubles
+    T = table('Size', [0, length(pars.chanlocs)+1], ...
+        'VariableTypes', ["string" repelem("double",length(pars.chanlocs))], ...
+        'VariableNames', [{'Id'} cellfun(@(x)sprintf('%s_%s',prefix,x),{pars.chanlocs.labels},'uni',0)]);
+
+    % loop thru the files selected
+    for f=1:length(filenames)
+        EEG = pop_loadset([pars.pathname '/' filenames{f}]);
+        % remove channels not in chanlocs
+        remove = find(~ismember({EEG.chanlocs.labels}, {pars.chanlocs.labels}));
+        if ~isempty(remove)
+            EEG = pop_select(EEG, 'nochannel', remove);
         end
 
-    case {'Power','DFA'}
-        prefix = sprintf('%s_%s', pars.var, pars.freqname);
-        % determine frequency for Power and DFA
-end
 
-% initialize table with no values in the table (rowcount = 0). One
-% string for Id and the rest are doubles
-T = table('Size', [0, length(pars.chanlocs)+1], ...
-    'VariableTypes', ["string" repelem("double",length(pars.chanlocs))], ...
-    'VariableNames', [{'Id'} cellfun(@(x)sprintf('%s_%s',prefix,x),{pars.chanlocs.labels},'uni',0)]);
+        % impute the rest
+        EEG = pop_interp(EEG, pars.chanlocs, 'spherical');
 
-% loop thru the files selected
-for f=1:length(filenames)
-    EEG = pop_loadset([pars.pathname '/' filenames{f}]);
-    % remove channels not in chanlocs
-    remove = find(~ismember({EEG.chanlocs.labels}, {pars.chanlocs.labels}));
-    if ~isempty(remove)
-        EEG = pop_select(EEG, 'nochannel', remove);
+        % do calculations
+        switch pars.var
+            case 'DFA'
+                val = dfa(abs(hilbert(filter_fir(EEG.data, EEG.srate, pars.freq(1), pars.freq(2), 3.0, true)')), EEG.srate);
+
+            case 'IAF'
+                [P,fs] = pfft(EEG.data(:,:)', EEG.srate, hanning(EEG.srate*4), .5);
+                ndx = fs>=lo & fs<hi;
+                val = sum(P(ndx,:).*(fs(ndx)'),1) ./ sum(P(ndx,:),1);
+
+            case 'Power'
+                [P,fs] = pfft(EEG.data(:,:)', EEG.srate, hanning(EEG.srate*4), .5);
+                ndx = fs>=pars.freq(1) & fs<pars.freq(2);
+                val = mean(P(ndx,:),1);
+                if pars.dB
+                    val = 10*log10(val);
+                end
+        end
+
+        T.Id(f) = filenames{f};
+        T(f,2:end) = array2table(val);
     end
-
-
-    % impute the rest
-    EEG = pop_interp(EEG, pars.chanlocs, 'spherical');
-
-    % do calculations
-    switch pars.var
-        case 'DFA'
-            val = dfa(abs(hilbert(filter_fir(EEG.data, EEG.srate, pars.freq(1), pars.freq(2), 3.0, true)')), EEG.srate);
-
-        case 'IAF'
-            [P,fs] = pfft(EEG.data(:,:)', EEG.srate, hanning(EEG.srate*4), .5);
-            ndx = fs>=lo & fs<hi;
-            val = sum(P(ndx,:).*(fs(ndx)'),1) ./ sum(P(ndx,:),1);
-
-        case 'Power'
-            [P,fs] = pfft(EEG.data(:,:)', EEG.srate, hanning(EEG.srate*4), .5);
-            ndx = fs>=pars.freq(1) & fs<pars.freq(2);
-            val = mean(P(ndx,:),1);
-    end
-
-    T.Id(f) = filenames{f};
-    T(f,2:end) = array2table(val);
-end
 
 % save the table
 [outfilename, outpathname] = uiputfile('*.txt', 'Save As Tab-delimted output');
@@ -563,6 +657,15 @@ else
 end
 
 fprintf('Data Table also stored in global variable T\n')
+
+% plotting the data in T
+toPlot = nanmean(table2array(T(:,2:end)));
+figure; 
+cmin = min(toPlot(:));
+cmax = max(toPlot(:));
+topoplot((toPlot), pars.chanlocs, 'maplimits', [cmin*.98 cmax*.98])
+colorbar
+
 
 % --------  end of function -----------------------
 
@@ -755,3 +858,12 @@ function checkboxMeta_Callback(hObject, eventdata, handles)
 % handles    structure with handles and user data (see GUIDATA)
 
 % Hint: get(hObject,'Value') returns toggle state of checkboxMeta
+
+
+% --- Executes on button press in checkboxdB.
+function checkboxdB_Callback(hObject, eventdata, handles)
+% hObject    handle to checkboxdB (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hint: get(hObject,'Value') returns toggle state of checkboxdB
