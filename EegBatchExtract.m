@@ -22,7 +22,7 @@ function varargout = EegBatchExtract(varargin)
 
 % Edit the above text to modify the response to help EegBatchExtract
 
-% Last Modified by GUIDE v2.5 13-Mar-2025 17:02:08
+% Last Modified by GUIDE v2.5 28-Mar-2025 10:42:32
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -342,10 +342,10 @@ function RunPSD(filenames, pars)
 
     % initialize output. Save the data into a glocal variable for cohoerence.
     global AllPSDfreqs
-    AllPSDfreqs = lo:hi;
+    AllPSDfreqs = lo:(hi-1);
     
     global AllPSD
-    AllPSD = nan(length(lo:hi), length(pars.chanlocs));
+    AllPSD = nan(length(lo:hi)-1, length(pars.chanlocs), length(filenames));
 
     % loop thru the files selected
     for f=1:length(filenames)
@@ -367,9 +367,9 @@ function RunPSD(filenames, pars)
             cnt = cnt+1;
             ndx = fs>=frq & fs<(frq+1);
             if pars.dB
-                AllPSD(frq,:,f) = 10*log10(mean(P(ndx,:),1));
+                AllPSD(cnt,:,f) = 10*log10(mean(P(ndx,:),1));
             else
-                AllPSD(frq,:,f) = mean(P(ndx,:),1);
+                AllPSD(cnt,:,f) = mean(P(ndx,:),1);
             end
         end
     end
@@ -399,21 +399,16 @@ function RunPSD(filenames, pars)
 % Callback function for checkbox
 function checkbox_callback(hObject, ax, fs, P, chanlocs, fontsize, dB)
 
-    % hardcoded limits
-    ndx = fs>=1 & fs<45;  
-    
+   
     % plot either all channels or a summary
     if get(hObject,'Value')==0
-        x = fs(ndx);
-        if dB
-            y = 10*log10(P(ndx,:));
-        else 
-            y = P(ndx,:);
-        end
-        newx = min(fs(ndx)):.25:max(fs(ndx));
+        x = fs;
+        y = nanmean(P,3);
+        newx = min(fs):.25:max(fs);
         res = arrayfun(@(c)spline(x, y(:,c), newx)', 1:size(y,2), 'UniformOutput', false);
         newy = cell2mat(res);
         plot(ax, newx, newy);
+        legend({chanlocs.labels})
         
     else
         numlabels = {'theta','radius','X','Y','Z','sph_theta','sph_phi','sph_radius'};
@@ -445,11 +440,7 @@ function checkbox_callback(hObject, ax, fs, P, chanlocs, fontsize, dB)
         regP(:,6) = mean(P(:,post & right),2);
 
         x = fs(ndx);
-        if dB
-            y = 10*log10(regP(ndx,:));
-        else 
-            y = regP(ndx,:);
-        end
+        y = regP(ndx,:);
         newx = min(fs(ndx)):.25:max(fs(ndx));
         res = arrayfun(@(c)spline(x, y(:,c), newx)', 1:size(y,2), 'UniformOutput', false);
         newy = cell2mat(res);
@@ -486,6 +477,9 @@ function RunFAA(filenames, pars)
 
         % impute the rest
         EEG = pop_interp(EEG, pars.chanlocs, 'spherical');
+        % checked if the channels are in the same order as the
+        % pars.chanlocs and they are!
+        
 
         % this takes a bit of time
         ndxF3 = ismember({pars.chanlocs.labels}, {'F3'});
@@ -580,7 +574,7 @@ function RunSingleParameterExtraction(filenames, pars)
 % function for analysis of EEG extracting a single parameter per
 % channel
 
-    global T
+    global ResultTable
 
     % initialize based on the analysis selected (var)
     switch pars.var
@@ -607,7 +601,7 @@ function RunSingleParameterExtraction(filenames, pars)
 
     % initialize table with no values in the table (rowcount = 0). One
     % string for Id and the rest are doubles
-    T = table('Size', [0, length(pars.chanlocs)+1], ...
+    ResultTable = table('Size', [0, length(pars.chanlocs)+1], ...
         'VariableTypes', ["string" repelem("double",length(pars.chanlocs))], ...
         'VariableNames', [{'Id'} cellfun(@(x)sprintf('%s_%s',prefix,x),{pars.chanlocs.labels},'uni',0)]);
 
@@ -643,8 +637,8 @@ function RunSingleParameterExtraction(filenames, pars)
                 end
         end
 
-        T.Id(f) = filenames{f};
-        T(f,2:end) = array2table(val);
+        ResultTable.Id(f) = filenames{f};
+        ResultTable(f,2:end) = array2table(val);
     end
 
 % save the table
@@ -658,8 +652,8 @@ end
 
 fprintf('Data Table also stored in global variable T\n')
 
-% plotting the data in T
-toPlot = nanmean(table2array(T(:,2:end)));
+% plotting the data in ResultTable
+toPlot = nanmean(table2array(ResultTable(:,2:end)));
 figure; 
 cmin = min(toPlot(:));
 cmax = max(toPlot(:));
@@ -867,3 +861,46 @@ function checkboxdB_Callback(hObject, eventdata, handles)
 % handles    structure with handles and user data (see GUIDATA)
 
 % Hint: get(hObject,'Value') returns toggle state of checkboxdB
+
+
+% --- Executes on button press in pushbuttonStats.
+function pushbuttonStats_Callback(hObject, eventdata, handles)
+% hObject    handle to pushbuttonStats (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+
+error('Not ready yet!')
+
+data = guidata(hObject);
+
+h = figStatsModal(hObject);
+uiwait(h);
+
+question1 = 'test variable';
+question2 = 'grouping or 2nd variable';
+options = {'2D', '3D within subject', '3D between subject'};
+
+res = Stats_modal_dialog(question1, question2, options);
+
+if strcmp(res.pressed, 'ok')
+    fprintf('You entered: %s\n', res.text);
+    fprintf('You chose: %s\n', res.choice);
+else
+    disp('User canceled.');
+end
+
+
+%
+% % ask for name of variable
+% dims = [1 35];  % Textbox dimensions
+% definput = {'ResultTable', ''};  % Default values
+% answer = inputdlg({'Enter lower bound:', 'Enter upper bound:'}, ...
+%     'input lower and upper bound for PSD', dims, definput);
+% % Convert the cell array to numbers
+% if ~isempty(answer) % Check if user didn't cancel
+%     lo = round(str2double(answer{1}));
+%     hi = round(str2double(answer{2}));
+% else
+%     return
+% end
