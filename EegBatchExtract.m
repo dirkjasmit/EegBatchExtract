@@ -224,10 +224,14 @@ data.editImputePath.String = PathName;
 data.editImputeFilename.String = sprintf('%s (%d channels)', FileName, 0);
 pause(.1)
 
-EEG = pop_loadset([PathName '/' FileName]);
-data.chanlocs = EEG.chanlocs;
+global PlotEEG
+
+PlotEEG = pop_loadset([PathName '/' FileName]);
+data.chanlocs = PlotEEG.chanlocs;
 data.editImputeFilename.String = sprintf('%s (%d channels)', FileName, length(data.chanlocs));
 pause(.05)
+
+disp('Stored the Imputation EEG dataset in the global variable PlotEEG for later plotting')
 
 guidata(hObject, data);
 
@@ -301,8 +305,13 @@ if ismember(var, {'DFA','Power'}) && data.popupmenuFreq.Value==1
 end
 
 pars = struct;
-pars.freqname = freqnames{data.popupmenuFreq.Value-1};
-pars.freq = freqs{data.popupmenuFreq.Value-1};
+try
+    pars.freqname = freqnames{data.popupmenuFreq.Value-1};
+    pars.freq = freqs{data.popupmenuFreq.Value-1};
+catch
+    pars.freqname = '';
+    pars.freq = [];
+end
 pars.pathname = data.pathname;
 pars.var = var;
 pars.chanlocs = data.chanlocs;
@@ -321,6 +330,9 @@ elseif ismember(var, {'PSD'})
 elseif ismember(var, {'FAA'})
     RunFAA(data.filenames, pars);
     
+elseif ismember(var, {'ERP/ERSP'})
+    RunTF(data.filenames, pars);
+
 end
 
 
@@ -393,7 +405,94 @@ function RunPSD(filenames, pars)
                      
     checkbox_callback(checkbox, ax, AllPSDfreqs, AllPSD, chanlocs, 10, pars.dB);
 
+    
+function RunTF(filenames, pars)
+    % function for time frequency analysis 
 
+    % ask for frequency bounds
+    dims = [1 35];  % Textbox dimensions
+    definput = {'4.0', '45.0', '[2 .5]'};  % Default values
+    answer = inputdlg({'Enter lower bound:', 'Enter upper bound:', 'rolloff parameters:'}, ...
+        'input lower and upper bound for TF analysis', dims, definput);
+    % Convert the cell array to numbers
+    if ~isempty(answer) % Check if user didn't cancel
+        lo = round(str2double(answer{1}));
+        hi = round(str2double(answer{2}));
+        rolloff = str2double(answer{3});
+    else
+        return
+    end
+
+    % initialize output. Save the data into a glocal variable for cohoerence.
+    global AllTFtimes
+    global AllTFfreqs
+    AllTFfreqs = lo:hi;
+    
+    global AllTF AllERP AllITC
+    % do not initialize, wait until the first analysis is done and then initialize
+    % AllTF = nan(length(AllTFfreqs), length(pars.chanlocs), length(filenames));
+    
+    % loop thru the files selected
+    for f=1:length(filenames)
+        EEG = pop_loadset([pars.pathname '/' filenames{f}]);
+       
+        % remove channels not in chanlocs
+        remove = find(~ismember({EEG.chanlocs.labels}, {pars.chanlocs.labels}));
+        if ~isempty(remove)
+            EEG = pop_select(EEG, 'nochannel', remove);
+        end
+        % impute the rest
+        EEG = pop_interp(EEG, pars.chanlocs, 'spherical');
+        
+        %for e=1:length(EEG.event)
+        %    if isnumeric(EEG.event(e).type)
+        %        EEG.event(e).type = sprintf("%d",EEG.event(e).type);
+        %    end
+        %end        
+        
+        
+        if EEG.trials==1
+            % data needs to be epoched!
+            if f==1
+                % ask for what epochs to analyse!
+                answer = inputdlg({'Enter space-separated event types','pre-stimulus period (ms)','post-stimulus period (ms)'}, ...
+                            'Event types selection', dims, {sprintf('%d ',unique([EEG.event.type])),'',''});
+                if isempty(answer)
+                    return
+                end
+                evttypes = strsplit(answer{1});
+                epoching = str2num(sprintf('[-%f %s]',abs(str2num(answer{2})),answer{3}));
+            end
+            
+            % epoch by numeric or string
+            EEG = pop_epoch(EEG, [cellfun(@str2num,evttypes,'uni',0), evttypes], epoching/1000);
+        end
+        % else assume data already epoched.
+        
+        % get ERPs
+        if f==1
+            AllERP = nan(EEG.nbchan, EEG.pnts, length(filenames));
+        end
+        AllERP(:,:,f) = mean(EEG.data,3);
+        
+        for ch=1:EEG.nbchan
+            [ERSP, ITC, ~, TIMES, FREQS] = pop_newtimef(EEG, 1, ch, [], [2 .5], 'freqs', lo:hi, ...
+                'wletmethod', 'dftfilt2', 'timesout', 200,...
+                'plotersp', 'off', 'plotitc', 'off');
+            if f==1 && ch==1
+                AllTF = nan(size(ERSP,1), size(ERSP,2), EEG.nbchan, length(filenames));
+                AllITC = nan(size(ERSP,1), size(ERSP,2), EEG.nbchan, length(filenames));
+            end
+            AllTF(:,:,ch,f) = ERSP;
+            AllITC(:,:,ch,f) = ITC;
+            AllTFfreqs = FREQS;
+            AllTFtimes = TIMES;
+        end
+        
+    end
+                        
+    disp('Data stored in globals AllTF AllITC AllTFfreqs AllTFtimes')
+    
 
 
 % Callback function for checkbox
@@ -644,7 +743,7 @@ function RunSingleParameterExtraction(filenames, pars)
 % save the table
 [outfilename, outpathname] = uiputfile('*.txt', 'Save As Tab-delimted output');
 if outfilename ~= 0
-    writetable(T,[outpathname '/' outfilename], 'Delimiter', '\t');
+    writetable(ResultTable,[outpathname '/' outfilename], 'Delimiter', '\t');
     disp('file written')
 else
     warning('No file written')
