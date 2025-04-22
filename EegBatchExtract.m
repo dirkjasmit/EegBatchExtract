@@ -22,7 +22,7 @@ function varargout = EegBatchExtract(varargin)
 
 % Edit the above text to modify the response to help EegBatchExtract
 
-% Last Modified by GUIDE v2.5 28-Mar-2025 10:42:32
+% Last Modified by GUIDE v2.5 19-Apr-2025 11:22:07
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -291,8 +291,8 @@ function pushbuttonBatch_Callback(hObject, eventdata, handles)
 data = guidata(hObject);
 
 % predefined
-freqnames = {'alpha','beta','theta','delta','alphalo','alphahi','betalo','betahi','SENSEalpha','SENSEtheta'};
-freqs = {[8 13], [13 30], [4 8], [1 3], [7 9.5], [9.5 13], [13 21], [21 30], [8.5 12.0], [3.0 8.5]};
+freqnames = {'alpha','beta','theta','delta','alphalo','alphahi','betalo','betahi','SENSEalpha','SENSEtheta','ENIGMA alpha'};
+freqs = {[8 13], [13 30], [4 8], [1 3], [7 9.5], [9.5 13], [13 21], [21 30], [8.5 12.0], [3.0 8.5], [7.0 13.0]};
 
 
 % what analysis was selected?
@@ -316,6 +316,7 @@ pars.pathname = data.pathname;
 pars.var = var;
 pars.chanlocs = data.chanlocs;
 pars.dB = data.checkboxdB.Value;
+pars.IntClean = data.checkboxInterpolationCleaning.Value;
 
 % DFA, IAF, and Power have the same output format.
 if ismember(var, {'DFA','IAF','Power'})
@@ -370,6 +371,10 @@ function RunPSD(filenames, pars)
 
         % impute the rest
         EEG = pop_interp(EEG, pars.chanlocs, 'spherical');
+        
+        if pars.IntClean
+            EEG = InterpolationCleaning(EEG);
+        end
 
         % this takes a bit of time
         [P, fs] = pfft(EEG.data(:,:)', EEG.srate, hanning(EEG.srate*4), .5);
@@ -423,7 +428,7 @@ function RunTF(filenames, pars)
         return
     end
 
-    % initialize output. Save the data into a glocal variable for cohoerence.
+    % initialize output. Save the data into a glocal variable for coherence.
     global AllTFtimes
     global AllTFfreqs
     AllTFfreqs = lo:hi;
@@ -432,6 +437,7 @@ function RunTF(filenames, pars)
     % do not initialize, wait until the first analysis is done and then initialize
     % AllTF = nan(length(AllTFfreqs), length(pars.chanlocs), length(filenames));
     
+    global filenames
     % loop thru the files selected
     for f=1:length(filenames)
         EEG = pop_loadset([pars.pathname '/' filenames{f}]);
@@ -443,6 +449,11 @@ function RunTF(filenames, pars)
         end
         % impute the rest
         EEG = pop_interp(EEG, pars.chanlocs, 'spherical');
+        
+        if pars.IntClean
+            EEG = InterpolationCleaning(EEG);
+        end
+
         
         %for e=1:length(EEG.event)
         %    if isnumeric(EEG.event(e).type)
@@ -491,7 +502,7 @@ function RunTF(filenames, pars)
         
     end
                         
-    disp('Data stored in globals AllTF AllITC AllTFfreqs AllTFtimes')
+    disp('Data stored as: global AllTF AllITC AllTFfreqs AllTFtimes AllERP filenames')
     
 
 
@@ -579,6 +590,9 @@ function RunFAA(filenames, pars)
         % checked if the channels are in the same order as the
         % pars.chanlocs and they are!
         
+        if pars.IntClean
+            EEG = InterpolationCleaning(EEG);
+        end
 
         % this takes a bit of time
         ndxF3 = ismember({pars.chanlocs.labels}, {'F3'});
@@ -658,6 +672,10 @@ function RunCoherence(filenames, pars)
         % impute the rest
         EEG = pop_interp(EEG, pars.chanlocs, 'spherical');
 
+        if pars.IntClean
+            EEG = InterpolationCleaning(EEG);
+        end
+        
         % this takes a bit of time
         [COH, fs] = fastcoherence(EEG.data(:,:)', 'srate', EEG.srate, 'window', hanning(EEG.srate*4));
 
@@ -713,10 +731,13 @@ function RunSingleParameterExtraction(filenames, pars)
             EEG = pop_select(EEG, 'nochannel', remove);
         end
 
-
         % impute the rest
         EEG = pop_interp(EEG, pars.chanlocs, 'spherical');
 
+        if pars.IntClean
+            EEG = InterpolationCleaning(EEG);
+        end
+        
         % do calculations
         switch pars.var
             case 'DFA'
@@ -1003,3 +1024,12 @@ end
 % else
 %     return
 % end
+
+
+% --- Executes on button press in checkboxInterpolationCleaning.
+function checkboxInterpolationCleaning_Callback(hObject, eventdata, handles)
+% hObject    handle to checkboxInterpolationCleaning (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hint: get(hObject,'Value') returns toggle state of checkboxInterpolationCleaning
