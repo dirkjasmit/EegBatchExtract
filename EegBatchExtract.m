@@ -22,7 +22,7 @@ function varargout = EegBatchExtract(varargin)
 
 % Edit the above text to modify the response to help EegBatchExtract
 
-% Last Modified by GUIDE v2.5 19-Apr-2025 11:22:07
+% Last Modified by GUIDE v2.5 05-Jul-2025 11:57:32
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -63,60 +63,77 @@ guidata(hObject, handles);
 
 % initialise data
 data = guidata(hObject);
+
+% set the values of the uicontrols. Read 
+if ismac()
+    data.INIDIR = '~/Application Support/Matlab_EegBatchExtract';
+elseif isunix
+    data.INIDIR = '~/.config/Matlab_EegBatchExtract';
+elseif ispc
+    data.INIDIR = '~/AppData/Matlab_EegBatchExtract';
+else
+    warning('unknown system')
+    data.INIDIR = './';
+end
+
+% initialize eeglab if not yet done
+if isempty(which('pop_loadset.m'))
+    try
+        eeglab
+    catch
+        warning('No eeglab found in path')
+    end
+end
+
+% initialize
 data.EEG = eeg_emptyset();
 
 % set the values of the uicontrols
 try
-    strlist = readtable(sprintf('%s.ini',get(hObject,'name')),'delimiter','\t','filetype','text');
+    FN = sprintf('%s/%s.ini', data.INIDIR, get(hObject,'name'));
+    C = readcell(FN, 'FileType', 'text');
+    strlist = cell2table(C(2:end, :), 'VariableNames', C(1, :));
     SetUIControlData(hObject, strlist);
-catch
+catch E
     warning('Initialization file not found. Will be created on close.')
 end
 
-% read in the chanlocs
-try
-    fn = data.editImputeFilename.String;
-    if strlength(fn)>3
-        fn = fn(1:strfind(fn,'(')-2);
-        EEG = pop_loadset([data.editImputePath.String '/' fn]);
+% get the most recently used filenames
+FN = sprintf('%s/%s_pathfilenames.ini', data.INIDIR, get(hObject,'name'));
+fid = fopen(FN, 'r');
+pathname = [];
+filenames = {};
+if fid>0    
+    pathname = fgetl(fid);
+    if pathname~=-1
+        filenames{1} = fgetl(fid);
+        while filenames{end} ~= -1
+            filenames{end+1} = fgetl(fid);
+        end
+        if filenames{end} == -1
+            filenames = filenames(1:end-1);
+        end
     end
-    data.chanlocs = EEG.chanlocs;
+end 
+data.pathname = pathname;
+data.filenames = filenames;
+
+data.editSelectPath.String = pathname;
+data.editSelectFileNum.String = sprintf("%d files",length(filenames));
+
+% now the impute file path, filename, and number of channels:
+% put path and filename in editbox, file third edit box with channels
+pathname = data.editImputePath.String;
+filename = data.editImputeFilename.String;
+try
+    PlotEEG = pop_loadset([pathname '/' filename]);
+    data.chanlocs = PlotEEG.chanlocs;
+    data.editImputeChannels.String = sprintf('%s ', data.chanlocs.labels);
+    data.editImputeChannels.Tooltip = sprintf('%d channels will be selected from each file (when available)', length(data.chanlocs));
 catch
-    warning('could not open chanlocs file')
+    warning('Undefined error loading the imputation/channel selection dataset')
 end
 
-% get the most recently used filenames
-try
-fid = fopen('.EegBatchExtract_SelectedFiles.ini','r');
-if fid>0
-    try
-        pathname = [];
-        filenames = {};
-        
-        pathname = fgetl(fid);
-        if pathname==-1
-            pathname = [];
-        else
-            filenames{1} = fgetl(fid);
-            while filenames{end} ~= -1
-                filenames{end+1} = fgetl(fid);
-            end
-            if filenames{end} == -1
-                filenames = filenames(1:end-1);
-            end
-        end
-    catch
-        warning('Init file for file names not present (or failed reading)')
-    end
-    data.pathname = pathname;
-    data.filenames = filenames;
-    
-    data.editSelectPath.String = pathname;
-    data.editSelectFileNum.String = sprintf("%d files",length(filenames));
-end 
-catch
-    warning('No such file')
-end
 
 guidata(hObject, data)
 
@@ -142,15 +159,23 @@ function pushbuttonSelect_Callback(hObject, eventdata, handles)
 data = guidata(hObject);
 
 FilterSpec = {'*.set', 'EEGLAB'};
-fid = fopen('.EegBatchExtract_FilePath.ini','r');
-defaultpath = ".";
-if fid>0
-    try
-        defaultpath = fgetl(fid);
-        fclose(fid);
-    catch
-    end
-end 
+defaultpath = data.editSelectPath.String;
+if iscell(defaultpath)
+    defaultpath = defaultpath{1};
+end
+if ~exist(defaultpath)
+    defaultpath = '.';
+end
+
+% fid = fopen(sprintf('%s/%s_pathfilenames.ini', data.INIDIR, get(hObject,'name')), 'r');
+% defaultpath = ".";
+% if fid>0
+%     try
+%         defaultpath = fgetl(fid);
+%         fclose(fid);
+%     catch
+%     end
+% end 
 [filenames, pathname, filterindex] = uigetfile(FilterSpec, ...
     'Select an EEGLAB file', defaultpath, ...
     'multiselect', 'on');
@@ -167,11 +192,16 @@ if ischar(filenames)
 end
 
 % save the path when not cancelled
-fid = fopen('.EegBatchExtract_FilePath.ini','w');
-if fid>0
-    fprintf(fid,'%s',pathname);
-    fclose(fid);
-end
+% fid = fopen(sprintf('%s/%s_pathfilenames.ini', data.INIDIR, get(hObject,'name')), 'w');
+% if fid>0
+%     fprintf(fid,'%s\n',pathname);
+%     for f=1:length(filenames)
+%         fprintf(fid, '%s\n', filanems{f})
+%     end
+%     fclose(fid);
+% else
+%     warning('Could not open file for writing')
+% end
 
 % save in struct and wait for next buttonpress
 data.filenames = filenames;
@@ -194,44 +224,39 @@ function pushbuttonChanlocs_Callback(hObject, eventdata, handles)
 data = guidata(hObject);
 
 FilterSpec = {'*.set', 'EEGLAB'};
-fid = fopen('.EegBatchExtract_DefaultPath.ini','r');
-DefaultPath = ".";
-if fid>0
-    try
-        DefaultPath = fgetl(fid);
-        fclose(fid);
-    catch
-    end
-end 
-[FileName,PathName,FilterIndex] = uigetfile(FilterSpec, ...
-    'Select an EEGLAB file with channel locations', DefaultPath);
+defaultpath = data.editImputePath.String;
+if iscell(defaultpath)
+    defaultpath = defaultpath{1};
+end
+if ~exist(defaultpath)
+    deafultpath = '.';
+end
+% fid = fopen(sprintf('%s/%s_DefaultPath.ini','r');
+% if fid>0
+%     try
+%         DefaultPath = fgetl(fid);
+%         fclose(fid);
+%     catch
+%     end
+% end 
+[filename, pathname, ~] = uigetfile(FilterSpec, ...
+    'Select an EEGLAB file with channel locations', defaultpath);
 
 % Check if the user selected files or canceled
-if isequal(FileName, 0)
+if isequal(filename, 0)
     disp('User canceled file selection.');
     return;
 end
 
-% save the returned pathname
-fid = fopen('.EegBatchExtract_DefaultPath.ini','w');
-if fid>0
-    fprintf(fid,'%s',PathName);
-    fclose(fid);
-end 
-
-% put filename in editbox
-data.editImputePath.String = PathName;
-data.editImputeFilename.String = sprintf('%s (%d channels)', FileName, 0);
-pause(.1)
-
-global PlotEEG
-
-PlotEEG = pop_loadset([PathName '/' FileName]);
+% put path and filename in editbox, file third edit box with channels
+data.editImputePath.String = pathname;
+data.editImputeFilename.String = '...';
+pause(.01)
+PlotEEG = pop_loadset([pathname '/' filename]);
 data.chanlocs = PlotEEG.chanlocs;
-data.editImputeFilename.String = sprintf('%s (%d channels)', FileName, length(data.chanlocs));
-pause(.05)
-
-disp('Stored the Imputation EEG dataset in the global variable PlotEEG for later plotting')
+data.editImputeFilename.String = filename;
+data.editImputeChannels.String = sprintf('%s ', data.chanlocs.labels);
+data.editImputeChannels.Tooltip = sprintf('%d channels will be selected from each file (when available)', length(data.chanlocs));
 
 guidata(hObject, data);
 
@@ -290,6 +315,10 @@ function pushbuttonBatch_Callback(hObject, eventdata, handles)
 
 data = guidata(hObject);
 
+% always create the result table with filenames
+global ResultTable
+
+
 % predefined
 freqnames = {'alpha','beta','theta','delta','alphalo','alphahi','betalo','betahi','SENSEalpha','SENSEtheta','ENIGMA alpha'};
 freqs = {[8 13], [13 30], [4 8], [1 3], [7 9.5], [9.5 13], [13 21], [21 30], [8.5 12.0], [3.0 8.5], [7.0 13.0]};
@@ -317,6 +346,17 @@ pars.var = var;
 pars.chanlocs = data.chanlocs;
 pars.dB = data.checkboxdB.Value;
 pars.IntClean = data.checkboxInterpolationCleaning.Value;
+pars.EOGClean = data.checkboxRunICAfilter.Value;
+pars.MaxMissing = data.sliderMaxMissing.Value;
+pars.Interpolate = data.checkboxInterpolate.Value>0;
+pars.Impute = data.checkboxImpute.Value>0;
+
+
+% initialize table with no values in the table (rowcount = 0). One
+% string for Id (and fill with filenames)
+ResultTable = table('Size', [length(data.filenames), 1], 'VariableTypes', "string", 'VariableNames', {'Id'});
+ResultTable.Id(:) = data.filenames;
+
 
 % DFA, IAF, and Power have the same output format.
 if ismember(var, {'DFA','IAF','Power'})
@@ -362,36 +402,77 @@ function RunPSD(filenames, pars)
 
     % loop thru the files selected
     for f=1:length(filenames)
-        EEG = pop_loadset([pars.pathname '/' filenames{f}]);
-        % remove channels not in chanlocs
-        remove = find(~ismember({EEG.chanlocs.labels}, {pars.chanlocs.labels}));
-        if ~isempty(remove)
-            EEG = pop_select(EEG, 'nochannel', remove);
-        end
+        try
+            EEG = pop_loadset([pars.pathname '/' filenames{f}]);
+            % remove channels not in chanlocs
+            remove = find(~ismember({EEG.chanlocs.labels}, {pars.chanlocs.labels}));
+            if ~isempty(remove)
+                EEG = pop_select(EEG, 'nochannel', remove);
+            end
 
-        % impute the rest
-        EEG = pop_interp(EEG, pars.chanlocs, 'spherical');
-        
-        if pars.IntClean
-            EEG = InterpolationCleaning(EEG);
-        end
+            % throw an exception when maximum of channels missing is
+            % exceeded
+            if length(pars.chanlocs)-EEG.nbchan>pars.MaxMissing
+                throw('>max channels missing')
+            end
+    
+            % impute the rest if required
+            if pars.Interpolate
+                EEG = pop_interp(EEG, pars.chanlocs, 'spherical');
+            end
+            
+            % 
+            if pars.IntClean
+                EEG = InterpolationCleaning(EEG);
+            end
 
-        % this takes a bit of time
-        [P, fs] = pfft(EEG.data(:,:)', EEG.srate, hanning(EEG.srate*4), .5);
-
-        cnt = 0;
-        for frq=lo:(hi-1)
-            cnt = cnt+1;
-            ndx = fs>=frq & fs<(frq+1);
-            if pars.dB
-                AllPSD(cnt,:,f) = 10*log10(mean(P(ndx,:),1));
+            % get the positioning of data in the chanlocs
+            [isMatch, idxInChanlocs] = ismember(lower({EEG.chanlocs.labels}), lower({pars.chanlocs.labels}));
+            matchedRows = idxInChanlocs(isMatch);
+            dataRows = find(isMatch);  % Positions in thisX
+            if length(dataRows)~=EEG.nbchan
+                error('mismatch')
+            end
+    
+            % this takes a bit of time
+            [P, fs] = pfft(EEG.data(:,:)', EEG.srate, hanning(EEG.srate*4), .5);
+    
+            cnt = 0;
+            for frq=lo:(hi-1)
+                cnt = cnt+1;
+                ndx = fs>=frq & fs<(frq+1);
+                if pars.dB
+                    AllPSD(cnt,matchedRows,f) = 10*log10(mean(P(ndx,:),1));
+                else
+                    AllPSD(cnt,matchedRows,f) = mean(P(ndx,:),1);
+                end
+            end
+        catch E
+            if strcmp(E.message,'mismatch')
+                throw(E);
+                % this shouldn't happen
             else
-                AllPSD(cnt,:,f) = mean(P(ndx,:),1);
+                AllPSD(:,:,f) = nan;
             end
         end
     end
 
-    disp('Data stored in global AllPSD (freqs in AllPSDfreqs)')
+    % if imputation checked (and not iinterpolation) do softimpute
+    % data are stores as nfreq x nchan x nsubject, but needs to be nsubject
+    % x (nfreq * nchan). Likely.
+    if pars.Impute && ~pars.Interpolate
+        tmp = permute(AllPSD, [3 1 2]); % nsubj x nchan x nfreq
+        reset = all(isnan(tmp(:,:)),2); % nsubj x (nchan * nfreq) 
+        tmp = softimpute(tmp(:,:));
+        tmp = tmp';                     % (nchan * nfreq) x nsubj
+        AllPSD = reshape(tmp, size(AllPSD));
+        % reset all fully missing dataset (max number of chans missing
+        % exceeded)
+        AllPSD(:,:,reset) = nan;
+    end
+
+
+    disp('Data stored in global AllPSD (freqs in AllPSDfreqs). Filenames in ResultTable.')
     
     % open a figure for the PSD
     chanlocs = pars.chanlocs;
@@ -410,10 +491,13 @@ function RunPSD(filenames, pars)
                      
     checkbox_callback(checkbox, ax, AllPSDfreqs, AllPSD, chanlocs, 10, pars.dB);
 
+
+
+
     
 function RunTF(filenames, pars)
     % function for time frequency analysis 
-
+    
     % ask for frequency bounds
     dims = [1 35];  % Textbox dimensions
     definput = {'4.0', '45.0', '[2 .5]'};  % Default values
@@ -437,7 +521,6 @@ function RunTF(filenames, pars)
     % do not initialize, wait until the first analysis is done and then initialize
     % AllTF = nan(length(AllTFfreqs), length(pars.chanlocs), length(filenames));
     
-    global filenames
     % loop thru the files selected
     for f=1:length(filenames)
         EEG = pop_loadset([pars.pathname '/' filenames{f}]);
@@ -447,21 +530,29 @@ function RunTF(filenames, pars)
         if ~isempty(remove)
             EEG = pop_select(EEG, 'nochannel', remove);
         end
-        % impute the rest
-        EEG = pop_interp(EEG, pars.chanlocs, 'spherical');
+
+        if f==1
+            AllERP = nan(EEG.nbchan, EEG.pnts, length(filenames));
+            AllTF = nan(size(ERSP,1), size(ERSP,2), EEG.nbchan, length(filenames));
+            AllITC = nan(size(ERSP,1), size(ERSP,2), EEG.nbchan, length(filenames));
+        end
+
+        % throw an exception when maximum of channels missing is
+        % exceeded
+        if length(pars.chanlocs)-EEG.nbchan>pars.MaxMissing
+            continue
+        end
+
+        % impute the rest if required
+        if pars.Interpolate
+            EEG = pop_interp(EEG, pars.chanlocs, 'spherical');
+        end
         
         if pars.IntClean
             EEG = InterpolationCleaning(EEG);
         end
 
-        
-        %for e=1:length(EEG.event)
-        %    if isnumeric(EEG.event(e).type)
-        %        EEG.event(e).type = sprintf("%d",EEG.event(e).type);
-        %    end
-        %end        
-        
-        
+        % check if data is epoched.
         if EEG.trials==1
             % data needs to be epoched!
             if f==1
@@ -481,27 +572,45 @@ function RunTF(filenames, pars)
         % else assume data already epoched.
         
         % get ERPs
-        if f==1
-            AllERP = nan(EEG.nbchan, EEG.pnts, length(filenames));
-        end
         AllERP(:,:,f) = mean(EEG.data,3);
         
         for ch=1:EEG.nbchan
             [ERSP, ITC, ~, TIMES, FREQS] = pop_newtimef(EEG, 1, ch, [], [2 .5], 'freqs', lo:hi, ...
                 'wletmethod', 'dftfilt2', 'timesout', 200,...
                 'plotersp', 'off', 'plotitc', 'off');
-            if f==1 && ch==1
-                AllTF = nan(size(ERSP,1), size(ERSP,2), EEG.nbchan, length(filenames));
-                AllITC = nan(size(ERSP,1), size(ERSP,2), EEG.nbchan, length(filenames));
-            end
-            AllTF(:,:,ch,f) = ERSP;
-            AllITC(:,:,ch,f) = ITC;
+            [~,idx] = ismember(lower(EEG.chanlocs(ch).labels), lower({pars.chanlocs.labels}));
+            AllTF(:,:,idx,f) = ERSP;
+            AllITC(:,:,idx,f) = ITC;
             AllTFfreqs = FREQS;
             AllTFtimes = TIMES;
         end
         
     end
-                        
+
+    % if imputation checked (and not iinterpolation) do softimpute
+    % data are stores as nfreq x nchan x nsubject, but needs to be nsubject
+    % x (nfreq * nchan). Likely.
+    if pars.Impute && ~pars.Interpolate
+        tmp = permute(AllTF, [4 1 2 3]); % nsubj x nchan x nchan x nfreq
+        reset = all(isnan(tmp(:,:)),2);  % nsubj x (nchan * nchan * nfreq) 
+        tmp = softimpute(tmp(:,:));
+        tmp = tmp';                      % (nchan * nchan * nfreq) x nsubj
+        AllTF = reshape(tmp, size(AllTF)); % tested!
+        % reset all fully missing datasets (max number of chans missing
+        % exceeded)
+
+        AllITC(:,:,:, reset) = nan;
+        tmp = permute(AllITC, [4 1 2 3]); % nsubj x nchan x nchan x nfreq
+        reset = all(isnan(tmp(:,:)),2);  % nsubj x (nchan * nchan * nfreq) 
+        tmp = softimpute(tmp(:,:));
+        tmp = tmp';                      % (nchan * nchan * nfreq) x nsubj
+        AllITC = reshape(tmp, size(AllITC)); % tested!
+        % reset all fully missing datasets (max number of chans missing
+        % exceeded)
+        AllITC(:,:,:, reset) = nan;
+    end
+
+
     disp('Data stored as: global AllTF AllITC AllTFfreqs AllTFtimes AllERP filenames')
     
 
@@ -564,13 +673,11 @@ function checkbox_callback(hObject, ax, fs, P, chanlocs, fontsize, dB)
 
 
 function RunFAA(filenames, pars)
-    % function for analysis coherence
+    % function for analysis Frontal Asymmetry
 
-    % initialize table with no values in the table (rowcount = 0). One
-    % string for Id and the rest are doubles
-    % T = table('Size', [0, length(pars.chanlocs)+1], ...
-    %     'VariableTypes', ["string" repelem("double",length(pars.chanlocs))], ...
-    %     'VariableNames', [{'Id'} cellfun(@(x)sprintf('%s_%s',prefix,x),{pars.chanlocs.labels},'uni',0)]);
+    if (pars.Impute)
+        warning('FAA analysis cannot do statistical imputation')
+    end
 
     % initialize output. Save the data into a glocal variable for cohoerence.
     global FAA
@@ -585,8 +692,10 @@ function RunFAA(filenames, pars)
             EEG = pop_select(EEG, 'nochannel', remove);
         end
 
-        % impute the rest
-        EEG = pop_interp(EEG, pars.chanlocs, 'spherical');
+        % impute the rest if required
+        if pars.Interpolate
+            EEG = pop_interp(EEG, pars.chanlocs, 'spherical');
+        end
         % checked if the channels are in the same order as the
         % pars.chanlocs and they are!
         
@@ -596,7 +705,7 @@ function RunFAA(filenames, pars)
 
         % this takes a bit of time
         ndxF3 = ismember({pars.chanlocs.labels}, {'F3'});
-        ndxF4 = ismember({pars.chanlocs.labels}, {'F3'});
+        ndxF4 = ismember({pars.chanlocs.labels}, {'F4'});
         if ~sum(ndxF3 | ndxF4)
             % determine not by name but by approximate location... [sph_theta
             % sph_phi]
@@ -623,7 +732,8 @@ function RunFAA(filenames, pars)
         FAA(f) = tmp(2) - tmp(1);
     end
 
-    disp('FAA data stored in global variable FAA')
+    disp('FAA data stored in global variable FAA.')
+
 
 
 function angle_diff = angularDifference(theta1, phi1, theta2, phi2)
@@ -658,7 +768,7 @@ function RunCoherence(filenames, pars)
 
     % initialize output. Save the data into a glocal variable for cohoerence.
     global MeanCOH
-    MeanCOH = nan(length(pars.chanlocs));
+    MeanCOH = nan(length(pars.chanlocs), length(pars.chanlocs), length(filenames));
 
     % loop thru the files selected
     for f=1:length(filenames)
@@ -669,8 +779,17 @@ function RunCoherence(filenames, pars)
             EEG = pop_select(EEG, 'nochannel', remove);
         end
 
-        % impute the rest
-        EEG = pop_interp(EEG, pars.chanlocs, 'spherical');
+        % check for too many channels missing
+        if EEG.nbchan < length(pars.chanlocs)-pars.MaxMissing
+            warning(sprintf('Too many missing for "%s"', filenames{f}))
+            continue
+        end
+
+
+        % impute the rest if required
+        if pars.Interpolate
+            EEG = pop_interp(EEG, pars.chanlocs, 'spherical');
+        end
 
         if pars.IntClean
             EEG = InterpolationCleaning(EEG);
@@ -679,9 +798,33 @@ function RunCoherence(filenames, pars)
         % this takes a bit of time
         [COH, fs] = fastcoherence(EEG.data(:,:)', 'srate', EEG.srate, 'window', hanning(EEG.srate*4));
 
+        % ndx for frequencies.
         ndx = fs>=pars.freq(1) & fs<pars.freq(2);
+        % get the positioning of data in the chanlocs
+        [isMatch, idxInChanlocs] = ismember(lower({EEG.chanlocs.labels}), lower({pars.chanlocs.labels}));
+        matchedRows = idxInChanlocs(isMatch);
+        dataRows = find(isMatch);  % Positions in thisX
+        if length(dataRows)~=EEG.nbchan
+            error('Strange mistmatch. Shouldn''t happen.')
+        end
 
-        MeanCOH(:,:,f) = mean(COH(:,:, ndx),3);
+        % idx for channel match
+
+        MeanCOH(matchedRows,matchedRows,f) = mean(COH(:,:, ndx),3);
+    end
+
+    % if imputation checked (and not iinterpolation) do softimpute
+    % data are stores as nfreq x nchan x nsubject, but needs to be nsubject
+    % x (nfreq * nchan). Likely.
+    if pars.Impute && ~pars.Interpolate
+        tmp = permute(MeanCOH, [3 1 2]); % nsubj x nchan x nfreq
+        reset = all(isnan(tmp(:,:)),2);  % nsubj x (nchan * nfreq) 
+        tmp = softimpute(tmp(:,:));
+        tmp = tmp';                      % (nchan  * nfreq) x nsubj
+        MeanCOH = reshape(tmp, size(MeanCOH)); % tested!
+        % reset all fully missing datasets (max number of chans missing
+        % exceeded)
+        MeanCOH(:,:,reset) = nan;
     end
 
     disp('Coherence data stored in global variable MeanCOH')
@@ -716,24 +859,76 @@ function RunSingleParameterExtraction(filenames, pars)
             % determine frequency for Power and DFA
     end
 
-    % initialize table with no values in the table (rowcount = 0). One
-    % string for Id and the rest are doubles
-    ResultTable = table('Size', [0, length(pars.chanlocs)+1], ...
-        'VariableTypes', ["string" repelem("double",length(pars.chanlocs))], ...
-        'VariableNames', [{'Id'} cellfun(@(x)sprintf('%s_%s',prefix,x),{pars.chanlocs.labels},'uni',0)]);
+    % init data
+    X = nan(length(filenames), length(pars.chanlocs));
 
     % loop thru the files selected
     for f=1:length(filenames)
         EEG = pop_loadset([pars.pathname '/' filenames{f}]);
+
+        if pars.EOGClean
+            eogndx = contains(lower({EEG.chanlocs.labels}),'eog');
+            if (sum(eogndx))
+                eog = FindEOGComp(EEG, EEG.data(eogndx,:), .7);
+                eog = eog(eog>0);
+                if ~isempty(eog)
+                    % this formula works! Checked! Multiple ICs will be
+                    % extracted this way from the full set of channels.
+                    EEG.data(:,:) = EEG.data(:,:) - EEG.icawinv(:,eog)*EEG.icaact(eog,:);
+                end
+            end
+        end
+
+
+        % check for renamed channels P7/P8 --> T5/T6
+        if any(ismember(lower({EEG.chanlocs.labels}), lower({'P7','P8'}))) ...
+                && any(ismember(lower({pars.chanlocs.labels}), lower({'T5','T6'})))
+            for ch=1:length(EEG.chanlocs)
+                if strcmpi(EEG.chanlocs(ch).labels, 'P7')
+                    EEG.chanlocs(ch).labels = 'T5';
+                elseif strcmpi(EEG.chanlocs(ch).labels, 'P8')
+                    EEG.chanlocs(ch).labels = 'T6';
+                end
+            end
+        elseif any(ismember(lower({EEG.chanlocs.labels}), lower({'T5','T6'}))) ...
+                && any(ismember(lower({pars.chanlocs.labels}), lower({'P7','P8'})))
+            for ch=1:length(EEG.chanlocs)
+                if strcmpi(EEG.chanlocs(ch).labels, 'T5')
+                    EEG.chanlocs(ch).labels = 'P7';
+                elseif strcmpi(EEG.chanlocs(ch).labels, 'T6')
+                    EEG.chanlocs(ch).labels = 'P8';
+                end
+            end
+        end
+
         % remove channels not in chanlocs
         remove = find(~ismember({EEG.chanlocs.labels}, {pars.chanlocs.labels}));
         if ~isempty(remove)
             EEG = pop_select(EEG, 'nochannel', remove);
         end
 
-        % impute the rest
-        EEG = pop_interp(EEG, pars.chanlocs, 'spherical');
+        % check for too many channels missing
+        if EEG.nbchan < length(pars.chanlocs)-pars.MaxMissing
+            warning(sprintf('Too many missing for "%s"', filenames{f}))
+            continue
+        end
 
+        % impute the rest. This should also reorder the channels, even if
+        % there is no imputation required
+        if pars.Interpolate
+            try
+                EEG = pop_interp(EEG, pars.chanlocs, 'spherical');
+            catch E
+                if strcmpi(E.message, 'Interpolation require channel location')
+                    [~,cmdout] = system(sprintf('find %s -name "*standard_1005.elc"', fileparts(which('eeglab'))));
+                    EEG = pop_chanedit(EEG, 'lookup', cmdout);
+                else
+                    error(E.message)
+                end
+                EEG = pop_interp(EEG, pars.chanlocs, 'spherical');
+            end
+        end
+        
         if pars.IntClean
             EEG = InterpolationCleaning(EEG);
         end
@@ -757,28 +952,50 @@ function RunSingleParameterExtraction(filenames, pars)
                 end
         end
 
-        ResultTable.Id(f) = filenames{f};
-        ResultTable(f,2:end) = array2table(val);
+        % get the positioning of data in the chanlocs
+        [isMatch, idxInChanlocs] = ismember(lower({EEG.chanlocs.labels}), lower({pars.chanlocs.labels}));
+        matchedRows = idxInChanlocs(isMatch);
+        dataRows = find(isMatch);  % Positions in thisX
+        if length(dataRows)~=EEG.nbchan
+            error('mismatch')
+        end
+
+        X(f, matchedRows) = val;
     end
 
-% save the table
-[outfilename, outpathname] = uiputfile('*.txt', 'Save As Tab-delimted output');
-if outfilename ~= 0
-    writetable(ResultTable,[outpathname '/' outfilename], 'Delimiter', '\t');
-    disp('file written')
-else
-    warning('No file written')
-end
+    if pars.Impute
+        reset = all(isnan(X), 2);
+        X = softimpute(X);
+        X(reset,:) = nan;
+    end
 
-fprintf('Data Table also stored in global variable T\n')
+    % initialize table with no values in the table (rowcount = 0). One
+    % string for Id and the rest are doubles
+    ResultTable = table('Size', [length(filenames), length(pars.chanlocs)+1], ...
+        'VariableTypes', ["string" repelem("double",length(pars.chanlocs))], ...
+        'VariableNames', [{'Id'} cellfun(@(x)sprintf('%s_%s',prefix,x),{pars.chanlocs.labels},'uni',0)]);
 
-% plotting the data in ResultTable
-toPlot = nanmean(table2array(ResultTable(:,2:end)));
-figure; 
-cmin = min(toPlot(:));
-cmax = max(toPlot(:));
-topoplot((toPlot), pars.chanlocs, 'maplimits', [cmin*.98 cmax*.98])
-colorbar
+    ResultTable.Id = filenames(:);
+    ResultTable(:,2:end) = array2table(X);
+
+    % save the table
+    [outfilename, outpathname] = uiputfile('*.txt', 'Save As Tab-delimted output');
+    if outfilename ~= 0
+        writetable(ResultTable,[outpathname '/' outfilename], 'Delimiter', '\t');
+        disp('file written')
+    else
+        warning('No file written')
+    end
+    
+    fprintf('Data Table stored in global variable ResultTable\n')
+    
+    % plotting the data in ResultTable
+    toPlot = nanmean(table2array(ResultTable(:,2:end)));
+    figure; 
+    cmin = min(toPlot(:));
+    cmax = max(toPlot(:));
+    topoplot((toPlot), pars.chanlocs, 'maplimits', [cmin*.98 cmax*.98])
+    colorbar
 
 
 % --------  end of function -----------------------
@@ -865,11 +1082,18 @@ function figure1_CloseRequestFcn(hObject, eventdata, handles)
 data = guidata(hObject);
 
 % save all the settings
-strlist = GetUIControlData(hObject);
-writetable(strlist,sprintf('%s.ini',get(hObject,'name')),'delimiter','\t','filetype','text');
+try
+    strlist = GetUIControlData(hObject);
+    if ~exist(data.INIDIR)
+        mkdir(data.INIDIR);
+    end
+    writetable(strlist,sprintf('%s/%s.ini', data.INIDIR, get(hObject,'name')),'delimiter','\t','filetype','text');
+catch
+end
 
 if isfield(data, 'filenames')
-    fid = fopen('.EegBatchExtract_SelectedFiles.ini','w');
+    FN = sprintf('%s/%s_pathfilenames.ini', data.INIDIR, get(hObject,'name'));
+    fid = fopen(FN, 'w');
     if fid>0
         fprintf(fid,'%s\n',data.pathname);
         for f=1:length(data.filenames)
@@ -879,7 +1103,10 @@ if isfield(data, 'filenames')
     end
 end
 
+
 delete(hObject);
+
+
 
 
 % pass a handle to the gui, and it will extract all the UIControl object
@@ -919,7 +1146,7 @@ end
 
 strlist = struct2table(strlist);
 
-% 
+% set UI control data 
 function SetUIControlData(hObject, strlist)
 
 ch = get(hObject,'ch');
@@ -932,6 +1159,8 @@ for c=1:length(ch)
                 if length(ndx)==1
                     if isnumeric(strlist.val)
                         set(ch(c),'string', sprintf('%.4f', strlist.val(ndx)));
+                    elseif iscell(strlist.val(ndx)) && isnumeric(strlist.val{ndx})
+                        set(ch(c),'string', sprintf('%.4f', strlist.val{ndx}));
                     else
                         set(ch(c),'string', sprintf('%s', strlist.val{ndx}));
                     end
@@ -943,8 +1172,10 @@ for c=1:length(ch)
                 if length(ndx)==1
                     if isnumeric(strlist.val)
                         set(ch(c),'value', strlist.val(ndx));
+                    elseif iscell(strlist.val(ndx)) && isnumeric(strlist.val{ndx})
+                        set(ch(c),'value', strlist.val{ndx})
                     else
-                        set(ch(c),'value', str2num(strlist.val{ndx}));
+                        set(ch(c),'value', str2double(strlist.val{ndx}));
                     end
                 end
                 pause(0.005);
@@ -954,8 +1185,10 @@ for c=1:length(ch)
                 if length(ndx)==1
                     if isnumeric(strlist.val)
                         set(ch(c),'value', strlist.val(ndx));
+                    elseif iscell(strlist.val(ndx)) && isnumeric(strlist.val{ndx})
+                        set(ch(c),'value', strlist.val{ndx})
                     else
-                        set(ch(c),'value', double(strlist.val{ndx}));
+                        set(ch(c),'value', str2double(strlist.val{ndx}));
                     end
                 end
                 ch(c).Callback(ch(c),[])
@@ -1033,3 +1266,81 @@ function checkboxInterpolationCleaning_Callback(hObject, eventdata, handles)
 % handles    structure with handles and user data (see GUIDATA)
 
 % Hint: get(hObject,'Value') returns toggle state of checkboxInterpolationCleaning
+
+
+% --- Executes on button press in checkboxRunICAfilter.
+function checkboxRunICAfilter_Callback(hObject, eventdata, handles)
+% hObject    handle to checkboxRunICAfilter (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hint: get(hObject,'Value') returns toggle state of checkboxRunICAfilter
+
+
+% --- Executes on button press in checkboxInterpolate.
+function checkboxInterpolate_Callback(hObject, eventdata, handles)
+% hObject    handle to checkboxInterpolate (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hint: get(hObject,'Value') returns toggle state of checkboxInterpolate
+
+
+% --- Executes on button press in checkboxImpute.
+function checkboxImpute_Callback(hObject, eventdata, handles)
+% hObject    handle to checkboxImpute (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hint: get(hObject,'Value') returns toggle state of checkboxImpute
+
+
+% --- Executes on slider movement.
+function sliderMaxMissing_Callback(hObject, eventdata, handles)
+% hObject    handle to sliderMaxMissing (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hints: get(hObject,'Value') returns position of slider
+%        get(hObject,'Min') and get(hObject,'Max') to determine range of slider
+
+data = guidata(hObject);
+
+data.textMaxMissing.String = sprintf('max. missing %d',get(hObject,'Value'));
+
+guidata(hObject, data);
+
+
+% --- Executes during object creation, after setting all properties.
+function sliderMaxMissing_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to sliderMaxMissing (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    empty - handles not created until after all CreateFcns called
+
+% Hint: slider controls usually have a light gray background.
+if isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+    set(hObject,'BackgroundColor',[.9 .9 .9]);
+end
+
+
+
+function editImputeChannels_Callback(hObject, eventdata, handles)
+% hObject    handle to editImputeChannels (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hints: get(hObject,'String') returns contents of editImputeChannels as text
+%        str2double(get(hObject,'String')) returns contents of editImputeChannels as a double
+
+
+% --- Executes during object creation, after setting all properties.
+function editImputeChannels_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to editImputeChannels (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    empty - handles not created until after all CreateFcns called
+
+% Hint: edit controls usually have a white background on Windows.
+%       See ISPC and COMPUTER.
+if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+    set(hObject,'BackgroundColor','white');
+end
