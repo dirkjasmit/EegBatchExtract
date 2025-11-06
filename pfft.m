@@ -67,7 +67,7 @@ start = floor(linspace(0,N-Len,floor((N/Len-1)/(1-Overlap)+1)))+1;
 % P(:,:,e). The final P will then be an average across those epochs.
 % Windows within peoch will start at start samples 'start'
 for e=1:size(Data,3)
-    Ps = zeros(length(fs),size(Data,2-cTranspose),length(start));
+    Ps = nan(length(fs),size(Data,2-cTranspose),length(start));
     count=0;
     for s=start
         count=count+1;
